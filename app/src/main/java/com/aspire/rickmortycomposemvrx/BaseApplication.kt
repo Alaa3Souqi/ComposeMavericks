@@ -1,15 +1,21 @@
 package com.aspire.rickmortycomposemvrx
 
 import android.app.Application
+import androidx.activity.ComponentActivity
 import com.airbnb.mvrx.Mavericks
-import com.aspire.rickmortycomposemvrx.network.ApiClient
-import com.aspire.rickmortycomposemvrx.ui.rickMorty.RickMortyRepository
+import com.aspire.rickmortycomposemvrx.di.AppComponent
+import com.aspire.rickmortycomposemvrx.di.DaggerAppComponent
 
 class BaseApplication : Application() {
-    val rickMortyRepository = RickMortyRepository(ApiClient.apiService)
+    lateinit var appComponent: AppComponent
 
     override fun onCreate() {
         super.onCreate()
+        appComponent = DaggerAppComponent.create()
         Mavericks.initialize(this)
     }
+}
+
+fun ComponentActivity.appComponent(): AppComponent {
+    return (application as BaseApplication).appComponent
 }
