@@ -1,6 +1,6 @@
 package com.aspire.rickmortycomposemvrx.network
 
-import com.aspire.rickmortycomposemvrx.model.CharacterResponse
+import com.aspire.rickmortycomposemvrx.data.model.CharacterResponse
 import retrofit2.http.GET
 import retrofit2.http.Query
 

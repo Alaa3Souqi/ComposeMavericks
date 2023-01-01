@@ -1,34 +1,93 @@
 package com.aspire.rickmortycomposemvrx.ui.rickMorty
 
-import com.airbnb.mvrx.MavericksViewModel
-import com.airbnb.mvrx.MavericksViewModelFactory
-import com.aspire.rickmortycomposemvrx.di.AssistedViewModelFactory
-import com.aspire.rickmortycomposemvrx.di.daggerMavericksViewModelFactory
-import com.aspire.rickmortycomposemvrx.mavericks.CharacterState
-import dagger.assisted.Assisted
-import dagger.assisted.AssistedFactory
-import dagger.assisted.AssistedInject
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.aspire.rickmortycomposemvrx.data.repository.RickMortyRepository
+import com.aspire.rickmortycomposemvrx.domain.Character
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-class RickMortyViewModel @AssistedInject constructor(
-    @Assisted initialState: CharacterState,
+@HiltViewModel
+class RickMortyViewModel @Inject constructor(
     private val repository: RickMortyRepository
-) :
-    MavericksViewModel<CharacterState>(initialState) {
+) : ViewModel() {
 
-    @AssistedFactory
-    interface Factory : AssistedViewModelFactory<RickMortyViewModel, CharacterState> {
-        override fun create(state: CharacterState): RickMortyViewModel
+    private val _characters = MutableStateFlow<ScreenState>(ScreenState.Loading)
+    val characters = _characters.asStateFlow()
+
+    private val _favoriteCharacters = MutableStateFlow<ScreenState>(ScreenState.Loading)
+    val favoriteCharacters = _favoriteCharacters.asStateFlow()
+
+    private fun getCharacters() {
+        repository.getCharacter()
+            .onEach { characters ->
+                repository.getFavorite()
+                    .map { it.map { item -> Character(item.name, item.image, false) } }
+                    .collect { favorite ->
+                        _characters.value = ScreenState.Success(characters.map { item ->
+                            item.copy(isSaved = favorite.contains(item))
+                        })
+                    }
+            }
+            .onStart { _characters.value = ScreenState.Loading }
+            .catch { _characters.value = ScreenState.Error(it) }
+            .flowOn(Dispatchers.IO)
+            .launchIn(viewModelScope)
     }
 
-    companion object :
-        MavericksViewModelFactory<RickMortyViewModel, CharacterState> by daggerMavericksViewModelFactory()
+    private fun getFavorite() {
+        repository.getFavorite()
+            .map { it.map { item -> Character(item.name, item.image, true) } }
+            .map { if (it.isEmpty()) ScreenState.Empty else ScreenState.Success(it) }
+            .onStart { emit(ScreenState.Loading) }
+            .catch { emit(ScreenState.Error(it)) }
+            .onEach { _favoriteCharacters.emit(it) }
+            .flowOn(Dispatchers.IO)
+            .launchIn(viewModelScope)
+    }
 
-
-    fun getCharacters() {
-        suspend {
-            repository.getCharacter()
-        }.execute {
-            copy(state = it)
+    private fun saveCharacter(characters: Character) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.add(characters)
         }
+    }
+
+    private fun removeCharacter(characters: Character) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.remove(characters)
+        }
+    }
+
+    fun onEvent(events: RickMortyEvents) {
+        when (events) {
+            is RickMortyEvents.FavoriteClick -> {
+                if (events.character.isSaved) {
+                    removeCharacter(events.character)
+                } else {
+                    saveCharacter(events.character)
+                }
+            }
+            RickMortyEvents.TryAgainCharacter -> {
+                getCharacters()
+            }
+            RickMortyEvents.TryAgainFavorite -> {
+                getFavorite()
+            }
+        }
+    }
+
+    init {
+        getCharacters()
+        getFavorite()
+    }
+
+    sealed class ScreenState {
+        object Empty : ScreenState()
+        class Success(val items: List<Character>) : ScreenState()
+        class Error(val throwable: Throwable) : ScreenState()
+        object Loading : ScreenState()
     }
 }
